@@ -6,6 +6,7 @@ import java.io.OutputStream;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -24,6 +25,9 @@ import org.msgpack.unpacker.Unpacker;
 import org.msgpack.unpacker.Converter;
 
 import android.util.Log;
+
+import it.evilsocket.dsploit.core.*;
+import it.evilsocket.dsploit.net.Target;
 
 //TODO: add license and write down that we had taken part of this code from armitage
 /* NOTES
@@ -94,6 +98,7 @@ public class RPCClient
     }
   }
 
+
   @SuppressWarnings("unchecked")
   protected Map exec (String methname, Object[] params) throws IOException, MsgpackException, MSFException
   {
@@ -143,7 +148,7 @@ public class RPCClient
   /** Caches certain calls and checks cache for re-executing them.
    * If not cached or not cacheable, calls exec. */
   @SuppressWarnings("unchecked")
-  private Object cacheExecute(String methodName, ArrayList params) throws IOException, MSFException, MsgpackException {
+  private Object cacheExecute(String methodName, Object[] params) throws IOException, MSFException, MsgpackException {
     if (methodName.equals("module.info") || methodName.equals("module.options") || methodName.equals("module.compatible_payloads") || methodName.equals("core.version")) {
       StringBuilder keysb = new StringBuilder(methodName);
 
@@ -156,19 +161,18 @@ public class RPCClient
       if(result != null)
         return result;
 
-      result = exec(methodName, params.toArray());
+      result = exec(methodName, params);
       callCache.put(key, result);
       return result;
     }
-    return exec(methodName, params.toArray());
+    return exec(methodName, params);
   }
 
-  public Object execute(String method) throws IOException, MSFException
+  public Object call(String method) throws IOException, MSFException
   {
     try
     {
-      ArrayList<String> tmp = new ArrayList<String>();
-      tmp.add(token);
+      Object[] tmp = new Object[] { token };
       return cacheExecute(method, tmp);
     }
     catch ( MsgpackException me)
@@ -178,19 +182,52 @@ public class RPCClient
   }
 
   @SuppressWarnings("unchecked")
-  public Object execute(String method, ArrayList args) throws IOException, MSFException
+  public Object call(String method, Object... args) throws IOException, MSFException
   {
     try
     {
-      ArrayList local_array;
-
-      local_array = (ArrayList)args.clone();
-      local_array.add(0, token);
+      Object[] local_array = new Object[args.length+1];
+      local_array[0] = token;
+      for(int i=0;i<args.length;i++)
+        local_array[1+i] = args[i];
       return cacheExecute(method, local_array);
     }
     catch ( MsgpackException me)
     {
       throw new IOException(me);
+    }
+  }
+
+  @SuppressWarnings("unchecked")
+  public void updateSessions() {
+    Map<Integer,Map<String,Object>> openSessions;
+    Integer[] ids;
+
+    try {
+      openSessions = (Map<Integer, Map<String, Object>>) call("session.list");
+      ids = openSessions.keySet().toArray(new Integer[openSessions.size()]);
+
+      for(Integer id : ids) {
+        try {
+          String type = (String)openSessions.get(id).get("type");
+          Session s;
+          if("shell".equals(type)) {
+            s = new ShellSession(id,openSessions.get(id));
+          } else if("meterpreter".equals(type)) {
+            //TODO
+            s = new Session(id,openSessions.get(id));
+          } else {
+            s = new Session(id,openSessions.get(id));
+          }
+          it.evilsocket.dsploit.core.System.getCurrentTarget().addSession(s);
+        } catch ( UnknownHostException e) {
+          Logger.info(e.getMessage());
+        }
+      }
+    } catch (IOException e) {
+      e.printStackTrace();
+    } catch (MSFException e) {
+      e.printStackTrace();
     }
   }
 

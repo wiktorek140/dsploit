@@ -29,6 +29,7 @@ import it.evilsocket.dsploit.core.Logger;
 
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 
 import java.util.Date;
 import java.util.concurrent.TimeoutException;
@@ -48,36 +49,10 @@ public class RPCServer extends Thread
                           msfChrootPath;
   private int             msfPort;
   private long            mTimeout = 0;
-  private ShellReceiver   mShellReceiver  = null;
-  private Thread          mShellThread = null;
 
   public RPCServer(Context context) {
     super("RPCServer");
     mContext   = context;
-  }
-
-  /* WARNING: horrible code workarounds here.
-   * after many hours of debugging, coding, and coffe i found a workaround for issue #313
-   * i use a Thread and call start() join() everytime
-   * please help me find a better way to do this.
-  */
-
-  private class ShellReceiver implements Shell.OutputReceiver {
-    public boolean verbose=false;
-    public int exit_code = -1;
-    @Override
-    public void onStart(String command) { }
-
-    @Override
-    public void onNewLine(String line) {
-      if(verbose)
-        Logger.debug(line);
-    }
-
-    @Override
-    public void onEnd(int exitCode) {
-      exit_code = exitCode;
-    }
   }
 
 
@@ -95,10 +70,7 @@ public class RPCServer extends Thread
   private boolean connect_to_running_server() throws RuntimeException, IOException, InterruptedException {
     boolean ret = false;
 
-    mShellThread = Shell.async("pidof msfrpcd",mShellReceiver);
-    mShellThread.start();
-    mShellThread.join();
-    if(mShellReceiver.exit_code==0)
+    if(Shell.exec("pidof msfrpcd")==0)
     {
       try
       {
@@ -121,11 +93,7 @@ public class RPCServer extends Thread
       }
       finally {
         if(!ret)
-        {
-          mShellThread = Shell.async("killall msfrpcd ");
-          mShellThread.start();
-          mShellThread.join();
-        }
+          Shell.exec("killall msfrpcd");
       }
     }
     return ret;
@@ -136,14 +104,26 @@ public class RPCServer extends Thread
    * NOTE: it can be useful if we decide to own the msfrpcd process
   */
   private void start_daemon_fg() {
-    mShellReceiver.verbose = true;
-    mShellThread = Shell.async( "chroot \"" + msfChrootPath + "\" /start_msfrpcd.sh -P \"" + msfPassword + "\" -U \"" + msfUser + "\" -p " + msfPort + " -a 127.0.0.1 -n -S -t Msg -f", mShellReceiver );
+    class debug_receiver implements Shell.OutputReceiver {
+      @Override
+      public void onStart(String command) {
+        Logger.debug("running \""+command+"\"");
+      }
+
+      @Override
+      public void onNewLine(String line) {
+        Logger.debug(line);
+      }
+
+      @Override
+      public void onEnd(int exitCode) {
+        Logger.debug("exitValue="+exitCode);
+      }
+    }
 
     try
     {
-      mShellThread.start();
-      mShellThread.join();
-      if(mShellReceiver.exit_code != 0) {
+      if(Shell.exec( "chroot '" + msfChrootPath + "' /start_msfrpcd.sh -P '" + msfPassword + "' -U '" + msfUser + "' -p " + msfPort + " -a 127.0.0.1 -n -S -t Msg -f", new debug_receiver()) != 0) {
         Logger.error("chroot failed");
       }
     }
@@ -151,28 +131,40 @@ public class RPCServer extends Thread
     {
       System.errorLogging(e);
     }
-    finally {
-      mShellReceiver.verbose=false;
-    }
   }
 
-  private void start_daemon() throws RuntimeException, IOException, InterruptedException {
-    mShellThread = Shell.async( "chroot \"" + msfChrootPath + "\" /start_msfrpcd.sh -P \"" + msfPassword + "\" -U \"" + msfUser + "\" -p " + msfPort + " -a 127.0.0.1 -n -S -t Msg\n",mShellReceiver );
-    mShellThread.start();
-    mShellThread.join();
-    if(mShellReceiver.exit_code!=0) {
+  private void start_daemon() throws RuntimeException, IOException, InterruptedException, TimeoutException {
+    Shell.StreamGobbler chroot;
+    long time = 0;
+
+    chroot = (Shell.StreamGobbler)Shell.async( "chroot '" + msfChrootPath + "' /start_msfrpcd.sh -P '" + msfPassword + "' -U '" + msfUser + "' -p " + msfPort + " -a 127.0.0.1 -n -S -t Msg");
+    chroot.setName("chroot");
+    chroot.start();
+    try {
+    do {
+      Thread.sleep(100);
+      time=(new Date()).getTime();
+    } while(chroot.isAlive() && time < mTimeout);
+    } catch (InterruptedException e) {
+      //ensure to kill the chroot thread
+      chroot.interrupt();
+      throw e;
+    }
+    if(time >= mTimeout) {
+      chroot.interrupt();
+      throw new TimeoutException("chrooting timed out");
+    }
+    chroot.join();
+    if(chroot.exitValue !=0) {
+      Logger.error("chroot returned "+chroot.exitValue);
       throw new RuntimeException("chroot failed");
     }
   }
 
   private void wait_for_connection() throws RuntimeException, IOException, InterruptedException, TimeoutException {
-    // keep watching if server exists
-    mShellThread = Shell.async("pidof msfrpcd",mShellReceiver);
 
     do {
-      mShellThread.start();
-      mShellThread.join();
-      if(mShellReceiver.exit_code!=0)
+      if(Shell.exec("pidof msfrpcd")!=0)
       {
         // OMG, server crashed!
         // start server in foreground and log errors.
@@ -201,22 +193,23 @@ public class RPCServer extends Thread
         throw new RuntimeException();
       }
     } while(new Date().getTime() < mTimeout);
+    Logger.debug("MSF RPC Server timed out");
     throw new TimeoutException();
   }
 
   @Override
   public void run( ) {
-
-    mShellReceiver = new ShellReceiver();
     mTimeout = new Date().getTime() + TIMEOUT;
     Logger.debug("RPCServer started");
 
     mRunning = true;
 
-    msfChrootPath = System.getSettings().getString("MSF_CHROOT_PATH", "/data/gentoo_msf");
-    msfUser = System.getSettings().getString("MSF_RPC_USER", "msf");
-    msfPassword = System.getSettings().getString("MSF_RPC_PSWD", "pswd");
-    msfPort = System.getSettings().getInt("MSF_RPC_PORT", 55553);
+    SharedPreferences prefs = System.getSettings();
+
+    msfChrootPath = prefs.getString("MSF_CHROOT_PATH", "/data/gentoo_msf");
+    msfUser = prefs.getString("MSF_RPC_USER", "msf");
+    msfPassword = prefs.getString("MSF_RPC_PSWD", "pswd");
+    msfPort = prefs.getInt("MSF_RPC_PORT", 55553);
 
     try
     {
@@ -225,9 +218,11 @@ public class RPCServer extends Thread
         start_daemon();
         wait_for_connection();
         sendDaemonNotification(TOAST,R.string.rpcd_started);
-      }
-      else
+        Logger.debug("connected to new MSF RPC Server");
+      } else {
         sendDaemonNotification(TOAST, R.string.rpcd_running);
+        Logger.debug("connected to running MSF RPC Server");
+      }
     } catch ( IOException ioe ) {
       Logger.error(ioe.getMessage());
       sendDaemonNotification(ERROR,R.string.error_rpcd_shell);

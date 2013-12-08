@@ -1,5 +1,4 @@
 LOCAL_PATH := $(call my-dir)
-MY_LOCAL_PATH := $(LOCAL_PATH)
 include $(CLEAR_VARS)
 
 LOCAL_SRC_FILES:=\
@@ -120,11 +119,17 @@ LOCAL_SRC_FILES:=\
 	missing/strlcat.c\
 	missing/strlcpy.c
 
-LOCAL_CFLAGS := -O2 -g
+LOCAL_CFLAGS := -O2 -g -ffunction-sections -fdata-sections -static
 LOCAL_CFLAGS += -DHAVE_CONFIG_H -D_U_="__attribute__((unused))"
 
+LOCAL_LDFLAGS:= -Wl,--gc-sections
+
 LOCAL_C_INCLUDES += \
-	libpcap libnet/include include openssl openssl/include
+	libpcap\
+	libnet/include\
+	include\
+	openssl\
+	openssl/include
 
 LOCAL_STATIC_LIBRARIES := libpcap libssl
 

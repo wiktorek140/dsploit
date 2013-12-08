@@ -107,6 +107,15 @@ LOCAL_SRC_FILES+= \
 	asn1/asn_moid.c \
 	asn1/asn1_gen.c \
 	asn1/asn_mime.c \
+	bf/bf_cbc.c \
+	bf/bf_cfb64.c \
+	bf/bf_ecb.c \
+	bf/bf_enc.c \
+	bf/bf_ofb64.c \
+	bf/bf_opts.c \
+	bf/bf_skey.c \
+	bf/bfspeed.c \
+	bf/bftest.c \
 	bio/bio_lib.c \
 	bio/bio_cb.c \
 	bio/bio_err.c \
@@ -250,6 +259,7 @@ LOCAL_SRC_FILES+= \
 	evp/e_des3.c \
 	evp/e_rc4.c \
 	evp/e_aes.c \
+	evp/e_bf.c \
 	evp/names.c \
 	evp/e_xcbc_d.c \
 	evp/e_rc2.c \
@@ -447,7 +457,6 @@ LOCAL_SRC_FILES+= \
 	dh/dh_key.c \
 	dh/dh_lib.c \
 	dsa/dsa_asn1.c \
-	dsa/dsa_depr.c \
 	dsa/dsa_err.c \
 	dsa/dsa_gen.c \
 	dsa/dsa_key.c \
@@ -462,9 +471,12 @@ LOCAL_SRC_FILES+= \
 	ecdh/ech_key.c \
 	ecdh/ech_lib.c \
 	ecdh/ech_ossl.c \
-	engine/tb_ecdh.c 
+	engine/tb_ecdh.c \
+	dsa/dsa_depr.c \
+	rsa/rsa_depr.c \
+	bn/bn_depr.c
 
-LOCAL_CFLAGS += -DNO_WINDOWS_BRAINDEATH 
+LOCAL_CFLAGS += -DNO_WINDOWS_BRAINDEATH -ffunction-sections -fdata-sections
 
 include $(LOCAL_PATH)/../android-config.mk
 
@@ -478,7 +490,7 @@ ifneq ($(TARGET_SIMULATOR),true)
 	LOCAL_STATIC_LIBRARIES += libdl
 endif
 
-LOCAL_LDLIBS += -ldl
+# LOCAL_LDLIBS += -ldl
 
 LOCAL_MODULE:= libcrypto
 

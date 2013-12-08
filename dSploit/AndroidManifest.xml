@@ -53,6 +53,14 @@
                 android:label="@string/title_activity_main">
         </activity>
         <activity
+                android:name=".gui.MsfPreferences"
+                android:label="@string/title_activity_main">
+        </activity>
+        <activity
+            android:name=".gui.Console"
+            android:label="@string/title_activity_main">
+        </activity>
+        <activity
                 android:name=".ActionActivity"
                 android:label="@string/title_activity_main">
         </activity>

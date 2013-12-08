@@ -33,11 +33,10 @@ import it.evilsocket.dsploit.R;
 import it.evilsocket.dsploit.core.System;
 import it.evilsocket.dsploit.core.Logger;
 import it.evilsocket.dsploit.net.Network.Protocol;
+import it.evilsocket.dsploit.net.metasploit.Session;
 
 public class Target
 {
-  // remove "dev" "rc" and other extra version infos
-  private final static Pattern VERSION_PATTERN = Pattern.compile( "(([0-9]+\\.)+[0-9]+)[a-zA-Z]+");
 
   public enum Type{
     NETWORK,
@@ -46,7 +45,7 @@ public class Target
 
     public static Type fromString(String type) throws Exception{
       if(type != null){
-        type = type = type.trim().toLowerCase(Locale.US);
+        type = type.trim().toLowerCase(Locale.US);
         if(type.equals("network"))
           return Type.NETWORK;
 
@@ -64,8 +63,8 @@ public class Target
   public static class Port{
     public Protocol protocol;
     public int number;
-    public String service;
-    public String	version;
+    public String service = "";
+    public String	version = "";
     private ArrayList<Vulnerability> vulns = new ArrayList<Target.Vulnerability>();
 
     public Port( int port, Protocol proto, String service, String version) {
@@ -76,29 +75,22 @@ public class Target
     }
 
     public Port( int port, Protocol proto, String service ) {
-      this(port, proto, service, null);
+      this(port, proto, service, "");
     }
 
     public Port( int port, Protocol proto ) {
-      this( port, proto, null, null );
+      this( port, proto, "", "" );
     }
 
     public String getServiceQuery() {
-      String query = "";
-      Matcher matcher	  = null;
+      return service;
+    }
 
-      if( service != null )
-      {
-        query += service;
-
-        if(version!=null)
-          if((matcher = VERSION_PATTERN.matcher(version)) != null && matcher.find())
-            query += " " + matcher.group(1);
-          else
-            query += " " + version;
-      }
-
-      return query;
+    public String getServiceQueryWithVersion() {
+      if(version!=null)
+        return service + " " + version;
+      else
+        return service;
     }
 
     // needed for vulnerabilities hashmap
@@ -126,6 +118,27 @@ public class Target
     public ArrayList<Vulnerability> getVulnerabilities()
     {
       return vulns;
+    }
+
+    public boolean equals(Object o) {
+      if(o == null || o.getClass() != this.getClass())
+        return false;
+      Port p = (Port)o;
+      if(p.number != this.number || p.protocol != this.protocol)
+        return false;
+      if(this.version!=null) {
+        if(!this.version.equals(p.version))
+          return false;
+      } else if (p.version != null) {
+        return false;
+      }
+      if(this.service!=null) {
+        if(!this.service.equals(p.service))
+          return false;
+      } else if (p.service!=null) {
+        return false;
+      }
+      return true;
     }
   }
 
@@ -225,47 +238,71 @@ public class Target
       if(mExploits.contains(ex))
         mExploits.remove(ex);
     }
+
+    public boolean equals(Object o) {
+      if(o == null || o.getClass() != this.getClass())
+        return false;
+      //TODO: split Vulnerability into 2 classes
+      if(this.cve_id!=null) {
+        if(this.cve_id.equals(((Vulnerability)o).cve_id))
+          return true;
+      } else if(this.osvdb_id > 0 && ((Vulnerability)o).osvdb_id == this.osvdb_id)
+        return true;
+      return false;
+    }
   }
 
-  public static class Exploit
-  {
-    public String url;
-    public String name;
-    public String msf_name;
-    public int payload_size;
-    public boolean started = false;
-    private Vulnerability mVuln = null;
-    //TODO: get payload_size
+  public static class Exploit {
+    protected String mName;
+    protected String mDescription;
+    protected String mUrl;
+    protected Vulnerability mVuln;
 
-    public String toString()
-    {
-      if(msf_name!=null)
-        return msf_name;
-      return name;
+    public Exploit(String name, String url, String description) {
+      this.mName = name;
+      this.mUrl = url;
+      this.mDescription = description;
     }
 
-    public int getDrawableResourceId() {
-      if(msf_name!=null)
-        return R.drawable.exploit_msf;
-      return R.drawable.exploit;
+    public Exploit(String name, String url) {
+      this(name, url,"");
+    }
+
+    public String getName() {
+      return this.mName;
     }
 
     public String getDescription() {
-      return url;
+      if(this.mDescription!=null)
+        return this.mDescription;
+      else
+        return this.mUrl;
     }
 
-    public void setVulnerability(Vulnerability vuln)
-    {
-      if(mVuln==vuln)
-        return;
-      if(mVuln!=null)
-        mVuln.delExploit(this);
-      mVuln=vuln;
+    public String getUrl() {
+      return this.mUrl;
     }
 
-    public Vulnerability getVulnerability()
-    {
+    public void setVulnerability(Vulnerability vulnerability) {
+      this.mVuln = vulnerability;
+    }
+
+    public Vulnerability getVulnerability() {
       return mVuln;
+    }
+
+    public String toString() {
+      return mName;
+    }
+
+    public int getDrawableResourceId() {
+      return R.drawable.exploit;
+    }
+
+    public boolean equals(Object o) {
+      if(o == null || o.getClass() != this.getClass())
+        return false;
+      return ((Exploit)o).getName().equals(this.mName);
     }
   }
 
@@ -281,6 +318,7 @@ public class Target
   private String mAlias = null;
   private ArrayList<Vulnerability> mVulnerabilities = new ArrayList<Vulnerability>();
   private ArrayList<Exploit> mExploits = new ArrayList<Target.Exploit>();
+  private ArrayList<Session> mSessions = new ArrayList<Session>();
 
   public static Target getFromString(String string){
     final Pattern PARSE_PATTERN = Pattern.compile("^(([a-z]+)://)?([0-9a-z\\-\\.]+)(:([\\d]+))?[0-9a-z\\-\\./]*$", Pattern.CASE_INSENSITIVE);
@@ -649,20 +687,17 @@ public class Target
   }
 
   public void addOpenPort(Port port){
-    for( int i = 0; i < mPorts.size(); i++ )
-    {
-      if( mPorts.get(i).number == port.number )
-      {
-        if( port.service != null )
-          mPorts.get(i).service = port.service;
-        if( port.version != null )
-          mPorts.get(i).version = port.version;
-
-        return;
+    if(port.service!=null) { // update service but preserve different versions
+      for(Port p : mPorts) {
+        if(p.number == port.number && p.service == null) {
+          p.service = port.service;
+          p.version = port.version;
+          return;
+        }
       }
     }
-
-    mPorts.add( port );
+    if(!mPorts.contains(port))
+      mPorts.add( port );
   }
 
   public void addOpenPort(int port, Protocol protocol){
@@ -733,9 +768,8 @@ public class Target
     return mVulnerabilities;
   }
 
-  public void addExploit(Vulnerability v, Exploit ex)
-  {
-    if(mExploits.contains(ex) || !mVulnerabilities.contains(v))
+  public void addExploit(Vulnerability v, Exploit ex) {
+    if (mExploits.contains(ex) || !mVulnerabilities.contains(v))
       return;
     mExploits.add(ex);
     v.addExploit(ex);
@@ -745,5 +779,14 @@ public class Target
   public ArrayList<Exploit> getExploits()
   {
     return mExploits;
+  }
+
+  public ArrayList<Session> getSessions() {
+    return mSessions;
+  }
+
+  public void addSession(Session s) {
+    if(!mSessions.contains(s))
+      mSessions.add(s);
   }
 }
