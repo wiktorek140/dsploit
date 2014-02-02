@@ -30,6 +30,7 @@ import java.net.InetAddress;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
@@ -38,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import it.evilsocket.dsploit.core.Shell;
 import it.evilsocket.dsploit.core.System;
 import it.evilsocket.dsploit.core.Logger;
 
@@ -69,6 +71,7 @@ public class NetworkDiscovery extends Thread
 
   private Context mContext = null;
   private UdpProber mProber = null;
+  private TargetProber mTargetProber = null;
   private ArpReader mArpReader = null;
   private boolean mRunning = false;
 
@@ -98,6 +101,7 @@ public class NetworkDiscovery extends Thread
       mNetBiosMap.clear();
       mStopped = false;
       String iface = "";
+      ArrayList<Target> foundTargets = new ArrayList<Target>();
 
       try{
         iface = System.getNetwork().getInterface().getDisplayName();
@@ -116,6 +120,8 @@ public class NetworkDiscovery extends Thread
           Target target = null;
           Network network = System.getNetwork();
 
+          foundTargets.clear();
+
           while((line = reader.readLine()) != null){
             if((matcher = ARP_TABLE_PARSER.matcher(line)) != null && matcher.find()){
               String address = matcher.group(1),
@@ -128,6 +134,7 @@ public class NetworkDiscovery extends Thread
               if(device.equals(iface) && !hwaddr.equals("00:00:00:00:00:00") && flags.contains("2")){
                 endpoint = new Endpoint(address, hwaddr);
                 target = new Target(endpoint);
+                foundTargets.add(target);
                 // rescanning the gateway could cause an issue when the gateway itself has multiple interfaces ( LAN, WAN ... )
                 if(!endpoint.getAddress().equals(network.getGatewayAddress()) && !endpoint.getAddress().equals(network.getLocalAddress())){
                   synchronized(mNetBiosMap){
@@ -176,10 +183,53 @@ public class NetworkDiscovery extends Thread
 
           reader.close();
 
+          boolean update = false;
+          boolean found;
+          int i;
+          Target[] currentTargets = System.getTargets().toArray(new Target[System.getTargets().size()]);
+
+          for(Target t : currentTargets) {
+
+            endpoint = t.getEndpoint();
+
+            if(endpoint == null)
+              continue;
+            for (found=false,i=0;i<foundTargets.size() && !found;i++) {
+              if(endpoint.equals(foundTargets.get(i).getEndpoint()))
+                found = true;
+            }
+
+            if(t.isConnected() != found && !t.isRouter() && !t.getAddress().equals(network.getLocalAddress())) {
+              t.setConneced(found);
+              update = true;
+            }
+          }
+
+          if(update)
+            sendEndpointUpdateNotification();
           Thread.sleep(500);
         }
         catch(Exception e){
           System.errorLogging(e);
+          String msg = e.getMessage();
+          if(msg != null && msg.contains("EMFILE")) {
+            try {
+              Shell.exec("lsof | grep "+android.os.Process.myPid(),new Shell.OutputReceiver() {
+                @Override
+                public void onStart(String command) { }
+
+                @Override
+                public void onNewLine(String line) {
+                  Logger.debug(line);
+                }
+
+                @Override
+                public void onEnd(int exitCode) { }
+              });
+            } catch ( Exception e1) {
+              System.errorLogging(e1);
+            }
+          }
         }
       }
     }
@@ -354,12 +404,49 @@ public class NetworkDiscovery extends Thread
     }
   }
 
+  private class TargetProber extends Thread {
+
+    private boolean mStopped = false;
+
+    @Override
+    public void run() {
+      while(!mStopped) {
+        try {
+          for(Target t : System.getTargets()) {
+
+            if(t.getAddress() == null)
+              continue;
+
+            DatagramSocket socket = new DatagramSocket();
+            DatagramPacket packet = new DatagramPacket(NETBIOS_REQUEST, NETBIOS_REQUEST.length, t.getAddress(), NETBIOS_UDP_PORT);
+
+            socket.setSoTimeout(200);
+            socket.send(packet);
+
+            socket.close();
+          }
+          sleep(5000);
+        } catch ( Exception e) {
+          if(!mStopped)
+            System.errorLogging(e);
+        }
+      }
+    }
+
+    public void exit() {
+      mStopped = true;
+      this.interrupt();
+    }
+
+  }
+
   public NetworkDiscovery(Context context){
     super("NetworkDiscovery");
 
     mContext = context;
     mArpReader = new ArpReader();
     mProber = new UdpProber();
+    mTargetProber = new TargetProber();
     mRunning = false;
   }
 
@@ -390,9 +477,11 @@ public class NetworkDiscovery extends Thread
     try{
       mProber.start();
       mArpReader.start();
+      mTargetProber.start();
 
       mProber.join();
       mArpReader.join();
+      mTargetProber.join();
 
       Logger.debug("Network monitor stopped.");
 
@@ -403,8 +492,10 @@ public class NetworkDiscovery extends Thread
   }
 
   public void exit(){
+    mRunning = false;
     try{
       mProber.exit();
+      mTargetProber.exit();
       mArpReader.exit();
     } catch(Exception e){
       System.errorLogging(e);

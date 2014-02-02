@@ -126,7 +126,26 @@ public class Shell
 
   public static boolean isRootGranted() {
     try{
-      return exec("id | grep -q 'uid=0'") == 0;
+      final StringBuilder output = new StringBuilder();
+      OutputReceiver receiver = new OutputReceiver() {
+        @Override
+        public void onStart(String command) {
+
+        }
+
+        @Override
+        public void onNewLine(String line) {
+          output.append(line + "\n");
+        }
+
+        @Override
+        public void onEnd(int exitCode) {
+
+        }
+      };
+
+      if(exec("id", receiver) == 0)
+        return output.toString().contains("uid=0");
     } catch(Exception e){
       System.errorLogging(e);
     }
@@ -142,8 +161,15 @@ public class Shell
   }
 
   public static boolean isBinaryAvailable(String binary) {
+    return isBinaryAvailable(binary, false);
+  }
+
+  public static boolean isBinaryAvailable(String binary, boolean execute) {
     try{
-      return exec("which "+binary) == 0;
+      if(execute)
+        return exec(binary) != 127;
+      else
+        return exec("which "+binary) == 0;
     } catch(Exception e){
       System.errorLogging(e);
     }
