@@ -14,7 +14,8 @@ LOCAL_C_INCLUDES := \
 	libnet/include \
 	include \
 	openssl \
-	openssl/include
+	openssl/include\
+	libbthread
 
 LOCAL_SRC_FILES:= \
         src/ec_send.c \
@@ -66,6 +67,13 @@ LOCAL_SRC_FILES:= \
         src/dissectors/ec_nntp.c \
         src/dissectors/ec_smb.c \
         src/dissectors/ec_bgp.c \
+        src/dissectors/ec_TN3270.c\
+				src/dissectors/ec_gg.c\
+				src/dissectors/ec_iscsi.c\
+				src/dissectors/ec_mongodb.c\
+				src/dissectors/ec_o5logon.c\
+				src/dissectors/ec_postgresql.c\
+				src/dissectors/ec_radius.c\
         src/ec_hook.c \
         src/ec_parser.c \
         src/ec_passive.c \
@@ -130,7 +138,8 @@ LOCAL_STATIC_LIBRARIES:= \
 	libnet \
 	libssl \
 	libcrypto\
-	libexpat
+	libexpat\
+	libbthread
 
 LOCAL_MODULE:= ettercap
 

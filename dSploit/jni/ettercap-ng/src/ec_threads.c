@@ -227,10 +227,9 @@ void ec_thread_init(void)
     * allow a thread to be cancelled as soon as the
     * cancellation  request  is received
     */
-#ifndef ANDROID
    pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
    pthread_setcanceltype(PTHREAD_CANCEL_ASYNCHRONOUS, NULL);
-#endif
+
    /* sync with the creator */ 
    INIT_UNLOCK;
    
@@ -251,11 +250,7 @@ void ec_thread_destroy(pthread_t id)
    DEBUG_MSG("ec_thread_destroy -- terminating %lu [%s]", PTHREAD_ID(id), ec_thread_getname(id));
 
    /* send the cancel signal to the thread */
-#ifdef ANDROID
-	pthread_kill((pthread_t)id, SIGUSR1);
-#else
    pthread_cancel((pthread_t)id);
-#endif
 
 #ifndef BROKEN_PTHREAD_JOIN
    DEBUG_MSG("ec_thread_destroy: pthread_join");
@@ -309,14 +304,10 @@ void ec_thread_kill_all(void)
          DEBUG_MSG("ec_thread_kill_all -- terminating %lu [%s]", PTHREAD_ID(current->t.id), current->t.name);
 
          /* send the cancel signal to the thread */
-#ifdef ANDROID
-		 pthread_kill((pthread_t)id, SIGUSR1);
-#else
-		 pthread_cancel((pthread_t)id);
-#endif
+				 pthread_cancel((pthread_t)current->t.id);
          
 #ifndef BROKEN_PTHREAD_JOIN
-         DEBUG_MSG("ec_thread_destroy: pthread_join");
+         DEBUG_MSG("ec_thread_kill_all: pthread_join");
          /* wait until it has finished */
          pthread_join(current->t.id, NULL);
 #endif         
